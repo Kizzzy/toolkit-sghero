@@ -1,8 +1,5 @@
 package cn.kizzzy.toolkit.controller;
 
-import cn.kizzzy.display.Display;
-import cn.kizzzy.display.DisplayContext;
-import cn.kizzzy.display.DisplayHelper;
 import cn.kizzzy.event.EventArgs;
 import cn.kizzzy.helper.FileHelper;
 import cn.kizzzy.helper.LogHelper;
@@ -15,9 +12,12 @@ import cn.kizzzy.javafx.display.DisplayTabView;
 import cn.kizzzy.javafx.display.DisplayType;
 import cn.kizzzy.javafx.setting.ISettingDialogFactory;
 import cn.kizzzy.javafx.setting.SettingDialogFactory;
-import cn.kizzzy.qqt.SgHeroConfig;
 import cn.kizzzy.sghero.RdfFile;
 import cn.kizzzy.sghero.RdfFileItem;
+import cn.kizzzy.sghero.SgHeroConfig;
+import cn.kizzzy.sghero.display.Display;
+import cn.kizzzy.sghero.display.DisplayContext;
+import cn.kizzzy.sghero.display.DisplayHelper;
 import cn.kizzzy.toolkit.extrator.PlayThisTask;
 import cn.kizzzy.toolkit.view.AbstractView;
 import cn.kizzzy.vfs.IPackage;
@@ -47,12 +47,9 @@ import javafx.stage.FileChooser;
 
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
-import java.lang.reflect.Type;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.regex.Pattern;
 
@@ -103,7 +100,6 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     
     protected IPackage vfs;
     protected ITree<RdfFileItem> tree;
-    protected Map<String, File> loadedKvs = new HashMap<>();
     
     protected Display display = new Display();
     protected TreeItem<Node<RdfFileItem>> dummyTreeItem;
@@ -119,7 +115,7 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         JavafxHelper.initContextMenu(tree_view, () -> stage.getScene().getWindow(), new MenuItemArg[]{
             new MenuItemArg(0, "设置", this::openSetting),
             new MenuItemArg(1, "加载RDF", this::loadPackage),
-            new MenuItemArg(2, "导出/图片", this::exportImage),
+            new MenuItemArg(2, "导出/文件", this::exportFile),
             new MenuItemArg(3, "复制路径", this::copyPath),
         });
         
@@ -191,33 +187,32 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
             config.last_rdf = file.getParent();
             
             new Thread(() -> {
-                IPackage iPackage = new FilePackage(file.getParent());
-                iPackage.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
-                
-                RdfFile rdfFile = iPackage.load(FileHelper.getName(file.getAbsolutePath()), RdfFile.class);
-                tree = new RdfTreeBuilder(rdfFile, new IdGenerator()).build();
-                
-                vfs = new RdfPackage(file.getParent(), tree);
-                
-                Platform.runLater(() -> {
-                    dummyTreeItem.getChildren().clear();
-                    
-                    final List<Node<RdfFileItem>> nodes = tree.listNode(0);
-                    for (Node<RdfFileItem> node : nodes) {
-                        dummyTreeItem.getChildren().add(new TreeItem<>(node));
-                    }
-                });
-                
-                loadedKvs.put(file.getAbsolutePath(), file);
+                try {
+                    loadRdfImpl(file);
+                } catch (Exception e) {
+                    LogHelper.error("load rdf error", e);
+                }
             }).start();
         }
     }
     
-    protected Object leaf2file(String path, Type clazz) {
-        if (vfs != null) {
-            return vfs.load(path, clazz);
-        }
-        return null;
+    private void loadRdfImpl(File file) {
+        IPackage iPackage = new FilePackage(file.getParent());
+        iPackage.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
+        
+        RdfFile rdfFile = iPackage.load(FileHelper.getName(file.getAbsolutePath()), RdfFile.class);
+        tree = new RdfTreeBuilder(rdfFile, new IdGenerator()).build();
+        
+        vfs = new RdfPackage(file.getParent(), tree);
+        
+        Platform.runLater(() -> {
+            dummyTreeItem.getChildren().clear();
+            
+            final List<Node<RdfFileItem>> nodes = tree.listNode(0);
+            for (Node<RdfFileItem> node : nodes) {
+                dummyTreeItem.getChildren().add(new TreeItem<>(node));
+            }
+        });
     }
     
     @Override
@@ -328,7 +323,7 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     }
     
     @FXML
-    protected void exportImage(ActionEvent event) {
+    protected void exportFile(ActionEvent event) {
         if (StringHelper.isNullOrEmpty(config.export_image_path)) {
             openSetting(null);
             return;
@@ -350,11 +345,9 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
                     target = new FilePackage(config.export_image_path + "/" + pkgName);
                 }
                 
-                if (leaf.path.contains(".png")) {
-                    byte[] data = vfs.load(leaf.path, byte[].class);
-                    if (data != null) {
-                        target.save(leaf.path, data);
-                    }
+                byte[] data = vfs.load(leaf.path, byte[].class);
+                if (data != null) {
+                    target.save(leaf.path, data);
                 }
             } catch (Exception e) {
                 LogHelper.info(String.format("export image failed: %s", leaf.name), e);

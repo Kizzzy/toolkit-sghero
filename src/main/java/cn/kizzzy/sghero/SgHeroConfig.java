@@ -1,4 +1,4 @@
-package cn.kizzzy.qqt;
+package cn.kizzzy.sghero;
 
 public class SgHeroConfig {
     

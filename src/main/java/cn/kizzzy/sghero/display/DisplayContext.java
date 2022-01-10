@@ -1,4 +1,4 @@
-package cn.kizzzy.display;
+package cn.kizzzy.sghero.display;
 
 import cn.kizzzy.event.IEventSource;
 
