@@ -43,6 +43,7 @@ import javafx.scene.control.ProgressBar;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 
 import java.awt.datatransfer.StringSelection;
@@ -177,7 +178,10 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         FileChooser chooser = new FileChooser();
         chooser.setTitle("选择rdf文件");
         if (StringHelper.isNotNullAndEmpty(config.last_rdf)) {
-            chooser.setInitialDirectory(new File(config.last_rdf));
+            File lastFolder = new File(config.last_rdf);
+            if (lastFolder.exists()) {
+                chooser.setInitialDirectory(lastFolder);
+            }
         }
         chooser.getExtensionFilters().addAll(
             new FileChooser.ExtensionFilter("RDF", "*.rdf")
@@ -324,14 +328,19 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     
     @FXML
     protected void exportFile(ActionEvent event) {
-        if (StringHelper.isNullOrEmpty(config.export_image_path)) {
-            openSetting(null);
-            return;
-        }
-        
         final TreeItem<Node<RdfFileItem>> selected = tree_view.getSelectionModel().getSelectedItem();
         if (selected == null) {
             return;
+        }
+        
+        if (StringHelper.isNullOrEmpty(config.export_image_path) || !new File(config.export_image_path).exists()) {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle("选择保存文件的文件夹");
+            File file = chooser.showDialog(stage);
+            if (file == null) {
+                return;
+            }
+            config.export_image_path = file.getAbsolutePath();
         }
         
         IPackage target = null;
