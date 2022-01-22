@@ -4,5 +4,5 @@ public class SgHeroConfig {
     
     public String last_rdf;
     
-    public String export_image_path;
+    public String export_file_path;
 }

@@ -13,7 +13,6 @@ import cn.kizzzy.javafx.display.DisplayType;
 import cn.kizzzy.javafx.setting.ISettingDialogFactory;
 import cn.kizzzy.javafx.setting.SettingDialogFactory;
 import cn.kizzzy.sghero.RdfFile;
-import cn.kizzzy.sghero.RdfFileItem;
 import cn.kizzzy.sghero.SgHeroConfig;
 import cn.kizzzy.sghero.display.Display;
 import cn.kizzzy.sghero.display.DisplayContext;
@@ -46,6 +45,7 @@ import javafx.scene.control.TreeView;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 
+import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.net.URL;
@@ -69,7 +69,7 @@ abstract class SgHeroViewBase extends AbstractView {
     protected CheckBox lock_tab;
     
     @FXML
-    protected TreeView<Node<RdfFileItem>> tree_view;
+    protected TreeView<Node> tree_view;
     
     @FXML
     protected DisplayTabView display_tab;
@@ -100,10 +100,10 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     protected ISettingDialogFactory dialogFactory;
     
     protected IPackage vfs;
-    protected ITree<RdfFileItem> tree;
+    protected ITree tree;
     
     protected Display display = new Display();
-    protected TreeItem<Node<RdfFileItem>> dummyTreeItem;
+    protected TreeItem<Node> dummyTreeItem;
     
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -115,8 +115,10 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         
         JavafxHelper.initContextMenu(tree_view, () -> stage.getScene().getWindow(), new MenuItemArg[]{
             new MenuItemArg(0, "设置", this::openSetting),
-            new MenuItemArg(1, "加载RDF", this::loadPackage),
-            new MenuItemArg(2, "导出/文件", this::exportFile),
+            new MenuItemArg(1, "加载RDF", this::loadRdf),
+            new MenuItemArg(2, "导出/文件", event -> exportFile(false)),
+            new MenuItemArg(2, "导出/文件(递归)", event -> exportFile(true)),
+            new MenuItemArg(2, "导出/打开路径", this::openExportFolder),
             new MenuItemArg(3, "复制路径", this::copyPath),
         });
         
@@ -174,7 +176,7 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         });
     }
     
-    protected void loadPackage(ActionEvent actionEvent) {
+    protected void loadRdf(ActionEvent actionEvent) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("选择rdf文件");
         if (StringHelper.isNotNullAndEmpty(config.last_rdf)) {
@@ -212,8 +214,8 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         Platform.runLater(() -> {
             dummyTreeItem.getChildren().clear();
             
-            final List<Node<RdfFileItem>> nodes = tree.listNode(0);
-            for (Node<RdfFileItem> node : nodes) {
+            final List<Node> nodes = tree.listNode(0);
+            for (Node node : nodes) {
                 dummyTreeItem.getChildren().add(new TreeItem<>(node));
             }
         });
@@ -227,19 +229,19 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         return null;
     }
     
-    protected void onSelectItem(Observable observable, TreeItem<Node<RdfFileItem>> oldValue, TreeItem<Node<RdfFileItem>> newValue) {
+    protected void onSelectItem(Observable observable, TreeItem<Node> oldValue, TreeItem<Node> newValue) {
         if (newValue != null) {
-            Node<RdfFileItem> folder = newValue.getValue();
-            Leaf<RdfFileItem> thumbs = null;
+            Node folder = newValue.getValue();
+            Leaf thumbs = null;
             
             if (folder.leaf) {
-                thumbs = (Leaf<RdfFileItem>) folder;
+                thumbs = (Leaf) folder;
             } else {
                 newValue.getChildren().clear();
                 
-                Iterable<Node<RdfFileItem>> list = folder.children.values();
-                for (Node<RdfFileItem> temp : list) {
-                    TreeItem<Node<RdfFileItem>> child = new TreeItem<>(temp);
+                Iterable<Node> list = folder.children.values();
+                for (Node temp : list) {
+                    TreeItem<Node> child = new TreeItem<>(temp);
                     newValue.getChildren().add(child);
                 }
                 newValue.getChildren().sort(comparator);
@@ -307,12 +309,12 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         playThis = !playThis;
         ((Button) event.getSource()).setText(playThis ? "暂停播放" : "连续播放");
         if (playThis) {
-            TreeItem<Node<RdfFileItem>> selected = tree_view.getSelectionModel().getSelectedItem();
+            TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
             
             List<Display> displays = new ArrayList<>();
             
-            List<Leaf<RdfFileItem>> fileList = tree.listLeaf(selected.getValue());
-            for (Leaf<RdfFileItem> file : fileList) {
+            List<Leaf> fileList = tree.listLeaf(selected.getValue());
+            for (Leaf file : fileList) {
                 displays.add(DisplayHelper.newDisplay(this, file.path));
             }
             
@@ -327,31 +329,31 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     }
     
     @FXML
-    protected void exportFile(ActionEvent event) {
-        final TreeItem<Node<RdfFileItem>> selected = tree_view.getSelectionModel().getSelectedItem();
+    protected void exportFile(boolean recursively) {
+        final TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
         if (selected == null) {
             return;
         }
         
-        if (StringHelper.isNullOrEmpty(config.export_image_path) || !new File(config.export_image_path).exists()) {
+        if (StringHelper.isNullOrEmpty(config.export_file_path) || !new File(config.export_file_path).exists()) {
             DirectoryChooser chooser = new DirectoryChooser();
             chooser.setTitle("选择保存文件的文件夹");
             File file = chooser.showDialog(stage);
             if (file == null) {
                 return;
             }
-            config.export_image_path = file.getAbsolutePath();
+            config.export_file_path = file.getAbsolutePath();
         }
         
         IPackage target = null;
-        Node<RdfFileItem> node = selected.getValue();
+        Node node = selected.getValue();
         
-        List<Leaf<RdfFileItem>> list = tree.listLeaf(selected.getValue(), true);
-        for (Leaf<RdfFileItem> leaf : list) {
+        List<Leaf> list = tree.listLeaf(selected.getValue(), recursively);
+        for (Leaf leaf : list) {
             try {
                 if (target == null) {
                     String pkgName = leaf.pack.replace(".rdf", "");
-                    target = new FilePackage(config.export_image_path + "/" + pkgName);
+                    target = new FilePackage(config.export_file_path + "/" + pkgName);
                 }
                 
                 byte[] data = vfs.load(leaf.path, byte[].class);
@@ -364,12 +366,24 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         }
     }
     
+    protected void openExportFolder(ActionEvent actionEvent) {
+        new Thread(() -> {
+            try {
+                if (StringHelper.isNotNullAndEmpty(config.export_file_path)) {
+                    Desktop.getDesktop().open(new File(config.export_file_path));
+                }
+            } catch (Exception e) {
+                LogHelper.error("open export folder error", e);
+            }
+        }).start();
+    }
+    
     protected void copyPath(ActionEvent actionEvent) {
-        TreeItem<Node<RdfFileItem>> selected = tree_view.getSelectionModel().getSelectedItem();
+        TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
         if (selected != null) {
-            Node<RdfFileItem> node = selected.getValue();
+            Node node = selected.getValue();
             if (node.leaf) {
-                Leaf<RdfFileItem> leaf = (Leaf<RdfFileItem>) node;
+                Leaf leaf = (Leaf) node;
                 
                 String path = leaf.path.replace("\\", "\\\\");
                 StringSelection selection = new StringSelection(path);
@@ -379,7 +393,7 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         }
     }
     
-    private TreeItem<Node<RdfFileItem>> filterRoot;
+    private TreeItem<Node> filterRoot;
     
     @FXML
     protected void onFilter(ActionEvent event) {
@@ -395,14 +409,14 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         }
         
         if (filterRoot == null) {
-            filterRoot = new TreeItem<>(new Node<>(0, "[Filter]"));
+            filterRoot = new TreeItem<>(new Node(0, "[Filter]"));
             dummyTreeItem.getChildren().add(filterRoot);
         }
         
         filterRoot.getChildren().clear();
         
-        List<Node<RdfFileItem>> list = tree.listNodeByRegex(regex);
-        for (Node<RdfFileItem> folder : list) {
+        List<Node> list = tree.listNodeByRegex(regex);
+        for (Node folder : list) {
             filterRoot.getChildren().add(new TreeItem<>(folder));
         }
         

@@ -1,15 +1,14 @@
 package cn.kizzzy.javafx;
 
 import cn.kizzzy.helper.FileHelper;
-import cn.kizzzy.sghero.RdfFileItem;
 import cn.kizzzy.vfs.tree.Node;
 import cn.kizzzy.vfs.tree.Root;
 import javafx.scene.control.TreeCell;
 
-public class TreeItemCell extends TreeCell<Node<RdfFileItem>> {
+public class TreeItemCell extends TreeCell<Node> {
     
     @Override
-    protected void updateItem(Node<RdfFileItem> item, boolean empty) {
+    protected void updateItem(Node item, boolean empty) {
         super.updateItem(item, empty);
         if (empty) {
             setText(null);
