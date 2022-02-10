@@ -1,23 +1,16 @@
 package cn.kizzzy.toolkit.controller;
 
-import cn.kizzzy.event.EventArgs;
 import cn.kizzzy.helper.FileHelper;
 import cn.kizzzy.helper.LogHelper;
 import cn.kizzzy.helper.StringHelper;
-import cn.kizzzy.javafx.TreeItemCell;
-import cn.kizzzy.javafx.TreeItemComparator;
 import cn.kizzzy.javafx.common.JavafxHelper;
 import cn.kizzzy.javafx.common.MenuItemArg;
+import cn.kizzzy.javafx.display.DisplayOperator;
 import cn.kizzzy.javafx.display.DisplayTabView;
-import cn.kizzzy.javafx.display.DisplayType;
 import cn.kizzzy.javafx.setting.ISettingDialogFactory;
 import cn.kizzzy.javafx.setting.SettingDialogFactory;
 import cn.kizzzy.sghero.RdfFile;
 import cn.kizzzy.sghero.SgHeroConfig;
-import cn.kizzzy.sghero.display.Display;
-import cn.kizzzy.sghero.display.DisplayContext;
-import cn.kizzzy.sghero.display.DisplayHelper;
-import cn.kizzzy.toolkit.extrator.PlayThisTask;
 import cn.kizzzy.toolkit.view.AbstractView;
 import cn.kizzzy.vfs.IPackage;
 import cn.kizzzy.vfs.ITree;
@@ -28,13 +21,13 @@ import cn.kizzzy.vfs.pack.RdfPackage;
 import cn.kizzzy.vfs.tree.IdGenerator;
 import cn.kizzzy.vfs.tree.Leaf;
 import cn.kizzzy.vfs.tree.Node;
+import cn.kizzzy.vfs.tree.NodeComparator;
 import cn.kizzzy.vfs.tree.RdfTreeBuilder;
 import javafx.application.Platform;
 import javafx.beans.Observable;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.Label;
@@ -49,7 +42,7 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.net.URL;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.regex.Pattern;
@@ -88,12 +81,12 @@ abstract class SgHeroViewBase extends AbstractView {
 
 @MenuParameter(path = "辅助/三国豪侠传/解包器(本地)")
 @PluginParameter(url = "/fxml/toolkit/sghero_local_view.fxml", title = "三国豪侠传(解包)")
-public class SgHeroLocalController extends SgHeroViewBase implements DisplayContext, Initializable {
+public class SgHeroLocalController extends SgHeroViewBase implements Initializable {
     
     protected static final String CONFIG_PATH = "sghero/local.config";
     
-    protected static final TreeItemComparator comparator
-        = new TreeItemComparator();
+    protected static final Comparator<TreeItem<Node>> comparator
+        = Comparator.comparing(TreeItem<Node>::getValue, new NodeComparator());
     
     protected IPackage userVfs;
     protected SgHeroConfig config;
@@ -102,7 +95,8 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
     protected IPackage vfs;
     protected ITree tree;
     
-    protected Display display = new Display();
+    protected DisplayOperator<IPackage> displayer;
+    
     protected TreeItem<Node> dummyTreeItem;
     
     @Override
@@ -122,31 +116,21 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
             new MenuItemArg(3, "复制路径", this::copyPath),
         });
         
-        addListener(DisplayType.TOAST_TIPS, this::toastTips);
-        addListener(DisplayType.SHOW_TEXT, this::onDisplayEvent);
-        addListener(DisplayType.SHOW_IMAGE, this::onDisplayEvent);
-        addListener(DisplayType.SHOW_TABLE, this::onDisplayEvent);
-        
         dummyTreeItem = new TreeItem<>();
         tree_view.setRoot(dummyTreeItem);
         tree_view.setShowRoot(false);
         tree_view.getSelectionModel().selectedItemProperty().addListener(this::onSelectItem);
-        tree_view.setCellFactory(callback -> new TreeItemCell());
         
         lock_tab.selectedProperty().addListener((observable, oldValue, newValue) -> {
             display_tab.setPin(newValue);
         });
         
-        DisplayHelper.load();
+        displayer = new DisplayOperator<>("cn.kizzzy.sghero.display", display_tab, IPackage.class);
+        displayer.load();
     }
     
     @Override
     public void stop() {
-        play = false;
-        if (playThisTask != null) {
-            playThisTask.stop();
-        }
-        
         if (tree != null) {
             tree.stop();
         }
@@ -156,24 +140,36 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         super.stop();
     }
     
-    @Override
-    public int provideIndex() {
-        return show_choice.getSelectionModel().getSelectedIndex();
+    protected void onSelectItem(Observable observable, TreeItem<Node> oldValue, TreeItem<Node> newValue) {
+        if (newValue != null) {
+            Node folder = newValue.getValue();
+            Leaf thumbs = null;
+            
+            if (folder.leaf) {
+                thumbs = (Leaf) folder;
+            } else {
+                newValue.getChildren().clear();
+                
+                Iterable<Node> list = folder.children.values();
+                for (Node temp : list) {
+                    TreeItem<Node> child = new TreeItem<>(temp);
+                    newValue.getChildren().add(child);
+                }
+                newValue.getChildren().sort(comparator);
+            }
+            
+            if (thumbs != null) {
+                displayer.display(thumbs.path);
+            }
+        }
     }
     
-    @Override
-    public boolean isFilterColor() {
-        return false;//image_filter.isSelected();
-    }
-    
-    protected void toastTips(EventArgs args) {
-        Platform.runLater(() -> tips.setText((String) args.getParams()));
-    }
-    
-    protected void onDisplayEvent(final EventArgs args) {
-        Platform.runLater(() -> {
-            display_tab.show(args.getType(), args.getParams());
-        });
+    @FXML
+    protected void openSetting(ActionEvent actionEvent) {
+        if (dialogFactory == null) {
+            dialogFactory = new SettingDialogFactory(stage);
+        }
+        dialogFactory.show(config);
     }
     
     protected void loadRdf(ActionEvent actionEvent) {
@@ -211,6 +207,8 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
         
         vfs = new RdfPackage(file.getParent(), tree);
         
+        displayer.setContext(vfs);
+        
         Platform.runLater(() -> {
             dummyTreeItem.getChildren().clear();
             
@@ -219,113 +217,6 @@ public class SgHeroLocalController extends SgHeroViewBase implements DisplayCont
                 dummyTreeItem.getChildren().add(new TreeItem<>(node));
             }
         });
-    }
-    
-    @Override
-    public <T> T load(String path, Class<T> clazz) {
-        if (vfs != null) {
-            return vfs.load(path, clazz);
-        }
-        return null;
-    }
-    
-    protected void onSelectItem(Observable observable, TreeItem<Node> oldValue, TreeItem<Node> newValue) {
-        if (newValue != null) {
-            Node folder = newValue.getValue();
-            Leaf thumbs = null;
-            
-            if (folder.leaf) {
-                thumbs = (Leaf) folder;
-            } else {
-                newValue.getChildren().clear();
-                
-                Iterable<Node> list = folder.children.values();
-                for (Node temp : list) {
-                    TreeItem<Node> child = new TreeItem<>(temp);
-                    newValue.getChildren().add(child);
-                }
-                newValue.getChildren().sort(comparator);
-            }
-            
-            if (thumbs != null) {
-                if (display != null) {
-                    display.stop();
-                }
-                display = DisplayHelper.newDisplay(this, thumbs.path);
-                display.init();
-            }
-        }
-    }
-    
-    protected void onChangeLayer(Observable observable, Number oldValue, Number newValue) {
-        display.select(newValue.intValue());
-    }
-    
-    @FXML
-    protected void openSetting(ActionEvent actionEvent) {
-        if (dialogFactory == null) {
-            dialogFactory = new SettingDialogFactory(stage);
-        }
-        dialogFactory.show(config);
-    }
-    
-    @FXML
-    protected void showPrev(ActionEvent actionEvent) {
-        display.prev();
-    }
-    
-    @FXML
-    protected void showNext(ActionEvent actionEvent) {
-        display.next();
-    }
-    
-    private boolean play;
-    
-    @FXML
-    protected void play(ActionEvent actionEvent) {
-        if (display != null) {
-            play = !play;
-            ((Button) actionEvent.getSource()).setText(play ? "暂停" : "播放");
-            if (play) {
-                new Thread(() -> {
-                    while (play) {
-                        try {
-                            Platform.runLater(() -> display.play());
-                            Thread.sleep(125);
-                        } catch (InterruptedException e) {
-                            LogHelper.error(null, e);
-                        }
-                    }
-                }).start();
-            }
-        }
-    }
-    
-    private boolean playThis;
-    private PlayThisTask playThisTask;
-    
-    @FXML
-    private void playThis(ActionEvent event) {
-        playThis = !playThis;
-        ((Button) event.getSource()).setText(playThis ? "暂停播放" : "连续播放");
-        if (playThis) {
-            TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
-            
-            List<Display> displays = new ArrayList<>();
-            
-            List<Leaf> fileList = tree.listLeaf(selected.getValue());
-            for (Leaf file : fileList) {
-                displays.add(DisplayHelper.newDisplay(this, file.path));
-            }
-            
-            playThisTask = new PlayThisTask(displays);
-            
-            new Thread(playThisTask).start();
-        } else {
-            if (playThisTask != null) {
-                playThisTask.stop();
-            }
-        }
     }
     
     @FXML
