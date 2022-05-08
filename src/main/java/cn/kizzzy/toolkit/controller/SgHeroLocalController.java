@@ -3,12 +3,12 @@ package cn.kizzzy.toolkit.controller;
 import cn.kizzzy.helper.FileHelper;
 import cn.kizzzy.helper.LogHelper;
 import cn.kizzzy.helper.StringHelper;
+import cn.kizzzy.javafx.StageHelper;
 import cn.kizzzy.javafx.common.JavafxHelper;
 import cn.kizzzy.javafx.common.MenuItemArg;
 import cn.kizzzy.javafx.display.DisplayOperator;
 import cn.kizzzy.javafx.display.DisplayTabView;
-import cn.kizzzy.javafx.setting.ISettingDialogFactory;
-import cn.kizzzy.javafx.setting.SettingDialogFactory;
+import cn.kizzzy.javafx.setting.SettingDialog;
 import cn.kizzzy.sghero.RdfFile;
 import cn.kizzzy.sghero.SgHeroConfig;
 import cn.kizzzy.toolkit.view.AbstractView;
@@ -90,7 +90,8 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
     
     protected IPackage userVfs;
     protected SgHeroConfig config;
-    protected ISettingDialogFactory dialogFactory;
+    private StageHelper stageHelper
+        = new StageHelper();
     
     protected IPackage vfs;
     protected ITree tree;
@@ -106,6 +107,8 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
         
         config = userVfs.load(CONFIG_PATH, SgHeroConfig.class);
         config = config != null ? config : new SgHeroConfig();
+    
+        stageHelper.addFactory(SettingDialog::new, SettingDialog.class);
         
         JavafxHelper.initContextMenu(tree_view, () -> stage.getScene().getWindow(), new MenuItemArg[]{
             new MenuItemArg(0, "设置", this::openSetting),
@@ -166,10 +169,10 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
     
     @FXML
     protected void openSetting(ActionEvent actionEvent) {
-        if (dialogFactory == null) {
-            dialogFactory = new SettingDialogFactory(stage);
-        }
-        dialogFactory.show(config);
+        SettingDialog.Args args = new SettingDialog.Args();
+        args.target = config;
+        
+        stageHelper.show(stage, args, SettingDialog.class);
     }
     
     protected void loadRdf(ActionEvent actionEvent) {
