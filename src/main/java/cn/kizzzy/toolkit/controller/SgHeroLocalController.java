@@ -16,6 +16,7 @@ import cn.kizzzy.vfs.IPackage;
 import cn.kizzzy.vfs.ITree;
 import cn.kizzzy.vfs.handler.JsonFileHandler;
 import cn.kizzzy.vfs.handler.RdfFileHandler;
+import cn.kizzzy.vfs.pack.CombinePackage;
 import cn.kizzzy.vfs.pack.FilePackage;
 import cn.kizzzy.vfs.pack.RdfPackage;
 import cn.kizzzy.vfs.tree.IdGenerator;
@@ -83,22 +84,24 @@ abstract class SgHeroViewBase extends AbstractView {
 @PluginParameter(url = "/fxml/toolkit/sghero_local_view.fxml", title = "三国豪侠传(解包)")
 public class SgHeroLocalController extends SgHeroViewBase implements Initializable {
     
-    protected static final String CONFIG_PATH = "sghero/local.config";
+    private static final String CONFIG_PATH = "sghero/local.config";
     
-    protected static final Comparator<TreeItem<Node>> comparator
+    private static final Comparator<TreeItem<Node>> comparator
         = Comparator.comparing(TreeItem<Node>::getValue, new NodeComparator());
     
-    protected IPackage userVfs;
-    protected SgHeroConfig config;
-    private StageHelper stageHelper
+    private final StageHelper stageHelper
         = new StageHelper();
     
-    protected IPackage vfs;
-    protected ITree tree;
+    private IPackage userVfs;
+    private SgHeroConfig config;
     
-    protected DisplayOperator<IPackage> displayer;
+    private CombinePackage vfs;
+    private IdGenerator idGenerator;
     
-    protected TreeItem<Node> dummyTreeItem;
+    private DisplayOperator<IPackage> displayer;
+    
+    private TreeItem<Node> dummyRoot;
+    private TreeItem<Node> filterRoot;
     
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -107,7 +110,7 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
         
         config = userVfs.load(CONFIG_PATH, SgHeroConfig.class);
         config = config != null ? config : new SgHeroConfig();
-    
+        
         stageHelper.addFactory(SettingDialog::new, SettingDialog.class);
         
         JavafxHelper.initContextMenu(tree_view, () -> stage.getScene().getWindow(), new MenuItemArg[]{
@@ -119,23 +122,23 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
             new MenuItemArg(3, "复制路径", this::copyPath),
         });
         
-        dummyTreeItem = new TreeItem<>();
-        tree_view.setRoot(dummyTreeItem);
+        dummyRoot = new TreeItem<>();
+        tree_view.setRoot(dummyRoot);
         tree_view.setShowRoot(false);
         tree_view.getSelectionModel().selectedItemProperty().addListener(this::onSelectItem);
         
-        lock_tab.selectedProperty().addListener((observable, oldValue, newValue) -> {
-            display_tab.setPin(newValue);
-        });
+        vfs = new CombinePackage();
+        idGenerator = new IdGenerator();
         
         displayer = new DisplayOperator<>("cn.kizzzy.sghero.display", display_tab, IPackage.class);
         displayer.load();
+        displayer.setContext(vfs);
     }
     
     @Override
     public void stop() {
-        if (tree != null) {
-            tree.stop();
+        if (vfs != null) {
+            vfs.stop();
         }
         
         userVfs.save(CONFIG_PATH, config);
@@ -143,39 +146,62 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
         super.stop();
     }
     
-    protected void onSelectItem(Observable observable, TreeItem<Node> oldValue, TreeItem<Node> newValue) {
-        if (newValue != null) {
-            Node folder = newValue.getValue();
-            Leaf thumbs = null;
-            
-            if (folder.leaf) {
-                thumbs = (Leaf) folder;
+    @FXML
+    private void onFilter(ActionEvent event) {
+        final String regex = filterValue.getText();
+        if (StringHelper.isNullOrEmpty(regex)) {
+            return;
+        }
+        
+        try {
+            Pattern.compile(regex);
+        } catch (Exception e) {
+            return;
+        }
+        
+        if (filterRoot == null) {
+            filterRoot = new TreeItem<>(new Node(-1, "[Filter]"));
+            dummyRoot.getChildren().add(filterRoot);
+        }
+        
+        filterRoot.getChildren().clear();
+        
+        List<Node> list = vfs.listNodeByRegex(regex);
+        for (Node folder : list) {
+            filterRoot.getChildren().add(new TreeItem<>(folder));
+        }
+        
+        filterRoot.getChildren().sort(comparator);
+    }
+    
+    private void onSelectItem(Observable observable, TreeItem<Node> oldValue, TreeItem<Node> newValue) {
+        Node node = newValue == null ? null : newValue.getValue();
+        if (node != null) {
+            if (node.leaf) {
+                Leaf leaf = (Leaf) node;
+                
+                displayer.display(leaf.path);
             } else {
                 newValue.getChildren().clear();
                 
-                Iterable<Node> list = folder.children.values();
+                Iterable<Node> list = node.children.values();
                 for (Node temp : list) {
                     TreeItem<Node> child = new TreeItem<>(temp);
                     newValue.getChildren().add(child);
                 }
                 newValue.getChildren().sort(comparator);
             }
-            
-            if (thumbs != null) {
-                displayer.display(thumbs.path);
-            }
         }
     }
     
-    @FXML
-    protected void openSetting(ActionEvent actionEvent) {
+    private void openSetting(ActionEvent actionEvent) {
         SettingDialog.Args args = new SettingDialog.Args();
         args.target = config;
         
         stageHelper.show(stage, args, SettingDialog.class);
     }
     
-    protected void loadRdf(ActionEvent actionEvent) {
+    private void loadRdf(ActionEvent actionEvent) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("选择rdf文件");
         if (StringHelper.isNotNullAndEmpty(config.last_rdf)) {
@@ -184,9 +210,11 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
                 chooser.setInitialDirectory(lastFolder);
             }
         }
+        
         chooser.getExtensionFilters().addAll(
             new FileChooser.ExtensionFilter("RDF", "*.rdf")
         );
+        
         File file = chooser.showOpenDialog(stage);
         if (file != null && file.getAbsolutePath().endsWith(".rdf")) {
             config.last_rdf = file.getParent();
@@ -202,33 +230,55 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
     }
     
     private void loadRdfImpl(File file) {
-        IPackage iPackage = new FilePackage(file.getParent());
-        iPackage.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
+        IPackage dataVfs = new FilePackage(file.getParent());
+        dataVfs.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
         
-        RdfFile rdfFile = iPackage.load(FileHelper.getName(file.getAbsolutePath()), RdfFile.class);
-        tree = new RdfTreeBuilder(rdfFile, new IdGenerator()).build();
+        RdfFile rdfFile = dataVfs.load(FileHelper.getName(file.getAbsolutePath()), RdfFile.class);
+        if (rdfFile == null) {
+            return;
+        }
         
-        vfs = new RdfPackage(file.getParent(), tree);
+        ITree tree = new RdfTreeBuilder(rdfFile, idGenerator).build();
+        IPackage vfs = new RdfPackage(file.getParent(), tree);
         
-        displayer.setContext(vfs);
+        doAfterLoadVfs(vfs);
+    }
+    
+    private void doAfterLoadVfs(IPackage _vfs) {
+        vfs.addPackage(_vfs);
         
         Platform.runLater(() -> {
-            dummyTreeItem.getChildren().clear();
+            dummyRoot.getChildren().clear();
             
-            final List<Node> nodes = tree.listNode(0);
+            final List<Node> nodes = vfs.listNode(0);
             for (Node node : nodes) {
-                dummyTreeItem.getChildren().add(new TreeItem<>(node));
+                TreeItem<Node> child = new TreeItem<>(node);
+                dummyRoot.getChildren().add(child);
+            }
+            
+            if (filterRoot != null) {
+                dummyRoot.getChildren().add(filterRoot);
             }
         });
     }
     
-    @FXML
-    protected void exportFile(boolean recursively) {
-        final TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            return;
-        }
-        
+    private void openExportFolder(ActionEvent actionEvent) {
+        openFolderImpl(config.export_file_path);
+    }
+    
+    private void openFolderImpl(String path) {
+        new Thread(() -> {
+            try {
+                if (StringHelper.isNotNullAndEmpty(path)) {
+                    Desktop.getDesktop().open(new File(path));
+                }
+            } catch (Exception e) {
+                LogHelper.error(String.format("open folder error, %s", path), e);
+            }
+        }).start();
+    }
+    
+    private void exportFile(boolean recursively) {
         if (StringHelper.isNullOrEmpty(config.export_file_path) || !new File(config.export_file_path).exists()) {
             DirectoryChooser chooser = new DirectoryChooser();
             chooser.setTitle("选择保存文件的文件夹");
@@ -239,10 +289,15 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
             config.export_file_path = file.getAbsolutePath();
         }
         
-        IPackage target = null;
-        Node node = selected.getValue();
+        final TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
+        Node node = selected == null ? null : selected.getValue();
+        if (node == null) {
+            return;
+        }
         
-        List<Leaf> list = tree.listLeaf(selected.getValue(), recursively);
+        IPackage target = null;
+        
+        List<Leaf> list = vfs.listLeaf(node, recursively);
         for (Leaf leaf : list) {
             try {
                 if (target == null) {
@@ -260,60 +315,15 @@ public class SgHeroLocalController extends SgHeroViewBase implements Initializab
         }
     }
     
-    protected void openExportFolder(ActionEvent actionEvent) {
-        new Thread(() -> {
-            try {
-                if (StringHelper.isNotNullAndEmpty(config.export_file_path)) {
-                    Desktop.getDesktop().open(new File(config.export_file_path));
-                }
-            } catch (Exception e) {
-                LogHelper.error("open export folder error", e);
-            }
-        }).start();
-    }
-    
-    protected void copyPath(ActionEvent actionEvent) {
+    private void copyPath(ActionEvent actionEvent) {
         TreeItem<Node> selected = tree_view.getSelectionModel().getSelectedItem();
-        if (selected != null) {
-            Node node = selected.getValue();
-            if (node.leaf) {
-                Leaf leaf = (Leaf) node;
-                
-                String path = leaf.path.replace("\\", "\\\\");
-                StringSelection selection = new StringSelection(path);
-                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(selection, selection);
-            }
+        Node node = selected == null ? null : selected.getValue();
+        if (node != null && node.leaf) {
+            Leaf leaf = (Leaf) node;
+            
+            String path = leaf.path.replace("\\", "\\\\");
+            StringSelection selection = new StringSelection(path);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
         }
-    }
-    
-    private TreeItem<Node> filterRoot;
-    
-    @FXML
-    protected void onFilter(ActionEvent event) {
-        final String regex = filterValue.getText();
-        if (StringHelper.isNullOrEmpty(regex)) {
-            return;
-        }
-        
-        try {
-            Pattern.compile(regex);
-        } catch (Exception e) {
-            return;
-        }
-        
-        if (filterRoot == null) {
-            filterRoot = new TreeItem<>(new Node(0, "[Filter]"));
-            dummyTreeItem.getChildren().add(filterRoot);
-        }
-        
-        filterRoot.getChildren().clear();
-        
-        List<Node> list = tree.listNodeByRegex(regex);
-        for (Node folder : list) {
-            filterRoot.getChildren().add(new TreeItem<>(folder));
-        }
-        
-        filterRoot.getChildren().sort(comparator);
     }
 }
