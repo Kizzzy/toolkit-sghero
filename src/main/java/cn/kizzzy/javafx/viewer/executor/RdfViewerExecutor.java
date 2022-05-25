@@ -101,7 +101,7 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
     }
     
     private void loadRdfImpl(ViewerExecutorArgs args, File file) {
-        IdGenerator idGenerator = new IdGenerator();
+        IdGenerator idGenerator = args.getIdGenerator();
         
         IPackage rootVfs = new FilePackage(file.getParent());
         rootVfs.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
