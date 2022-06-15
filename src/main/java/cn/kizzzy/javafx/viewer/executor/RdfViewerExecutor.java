@@ -39,7 +39,7 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
     @Override
     public void initialize(ViewerExecutorArgs args) {
         IPackage userVfs = args.getUserVfs();
-        userVfs.getHandlerKvs().put(SgHeroConfig.class, new JsonFileHandler<>(SgHeroConfig.class));
+        userVfs.addHandler(SgHeroConfig.class, new JsonFileHandler<>(SgHeroConfig.class));
         
         config = userVfs.load(CONFIG_PATH, SgHeroConfig.class);
         config = config != null ? config : new SgHeroConfig();
@@ -104,7 +104,7 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
         IdGenerator idGenerator = args.getIdGenerator();
         
         IPackage rootVfs = new FilePackage(file.getParent());
-        rootVfs.getHandlerKvs().put(RdfFile.class, new RdfFileHandler());
+        rootVfs.addHandler(RdfFile.class, new RdfFileHandler());
         
         String path = FileHelper.getName(file.getAbsolutePath());
         RdfFile rdfFile = rootVfs.load(path, RdfFile.class);
