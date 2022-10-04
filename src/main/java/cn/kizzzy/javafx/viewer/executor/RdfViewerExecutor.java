@@ -18,9 +18,11 @@ import cn.kizzzy.vfs.IPackage;
 import cn.kizzzy.vfs.ITree;
 import cn.kizzzy.vfs.handler.JsonFileHandler;
 import cn.kizzzy.vfs.pack.FilePackage;
+import cn.kizzzy.vfs.tree.FileTreeBuilder;
 import cn.kizzzy.vfs.tree.IdGenerator;
 import cn.kizzzy.vfs.tree.Leaf;
 import cn.kizzzy.vfs.tree.Node;
+import javafx.scene.control.TreeItem;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -59,12 +61,13 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
     }
     
     @Override
-    public Iterable<MenuItemArg> showContext(ViewerExecutorArgs args, Node selected) {
+    public Iterable<MenuItemArg> showContext(ViewerExecutorArgs args, TreeItem<Node> item, Node selected) {
         List<MenuItemArg> list = new ArrayList<>();
-        list.add(new MenuItemArg(1, "加载/Rdf(SgHero)", event -> loadFile(args)));
         list.add(new MenuItemArg(1, "加载/目录(SgHero)", event -> loadFolder(args)));
         if (selected != null) {
             list.add(new MenuItemArg(0, "设置", event -> openSetting(args, config)));
+            list.add(new MenuItemArg(1, "加载/Rdf(SgHero)", event -> loadRdfFile(args)));
+            list.add(new MenuItemArg(1, "加载/Rdf-2(SgHero)", event -> loadRdfFile(args, item, selected)));
             list.add(new MenuItemArg(2, "打开/文件目录", event -> openExportFolder(args)));
             list.add(new MenuItemArg(3, "导出/文件", event -> exportFile(args, selected, false)));
             list.add(new MenuItemArg(3, "导出/文件(递归)", event -> exportFile(args, selected, true)));
@@ -75,7 +78,37 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
         return list;
     }
     
-    private void loadFile(ViewerExecutorArgs args) {
+    private void loadFolder(ViewerExecutorArgs args) {
+        Stage stage = args.getStage();
+        
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle("选择文件夹");
+        if (StringHelper.isNotNullAndEmpty(config.last_folder)) {
+            File lastFolder = new File(config.last_folder);
+            if (lastFolder.exists()) {
+                chooser.setInitialDirectory(lastFolder);
+            }
+        }
+        
+        File file = chooser.showDialog(stage);
+        if (file != null) {
+            config.last_folder = file.getAbsolutePath();
+            
+            loadFolderImpl(args, file);
+        }
+    }
+    
+    private void loadFolderImpl(ViewerExecutorArgs args, File file) {
+        IdGenerator idGenerator = args.getIdGenerator();
+        
+        ITree rootTree = new FileTreeBuilder(file.getAbsolutePath(), idGenerator).build();
+        IPackage rootVfs = new FilePackage(file.getAbsolutePath(), rootTree);
+        rootVfs.addHandler(RdfFile.class, new RdfFileHandler());
+        
+        args.getObservable().setValue(new ViewerExecutorBinder(rootVfs, this));
+    }
+    
+    private void loadRdfFile(ViewerExecutorArgs args) {
         Stage stage = args.getStage();
         
         FileChooser chooser = new FileChooser();
@@ -118,8 +151,28 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
         args.getObservable().setValue(new ViewerExecutorBinder(rdfVfs, this));
     }
     
-    private void loadFolder(ViewerExecutorArgs args) {
-        // todo
+    private void loadRdfFile(ViewerExecutorArgs args, TreeItem<Node> item, Node selected) {
+        if (selected.leaf) {
+            Leaf leaf = (Leaf) selected;
+            if (leaf.path.endsWith(".rdf")) {
+                loadRdfFileImpl(args, item, leaf);
+            }
+        }
+    }
+    
+    private void loadRdfFileImpl(ViewerExecutorArgs args, TreeItem<Node> item, Leaf leaf) {
+        IPackage vfs = args.getVfs();
+        IdGenerator idGenerator = args.getIdGenerator();
+        
+        RdfFile rdfFile = vfs.load(leaf.path, RdfFile.class);
+        if (rdfFile == null) {
+            return;
+        }
+        
+        ITree tree = new RdfTreeBuilder(rdfFile, idGenerator).build();
+        IPackage rdfVfs = new RdfPackage(tree, vfs);
+        
+        args.getObservable().setValue(new ViewerExecutorBinder(rdfVfs, this, item));
     }
     
     private void openExportFolder(ViewerExecutorArgs args) {
