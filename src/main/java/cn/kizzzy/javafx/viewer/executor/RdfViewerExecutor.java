@@ -49,6 +49,8 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
     
     @Override
     public void stop(ViewerExecutorArgs args) {
+        super.stop(args);
+        
         IPackage userVfs = args.getUserVfs();
         userVfs.save(CONFIG_PATH, config);
     }
