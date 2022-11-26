@@ -57,9 +57,8 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
     
     @Override
     public void initOperator(DisplayTabView tabView, IPackage vfs) {
-        displayer = new DisplayOperator<>("cn.kizzzy.sghero.display", tabView, IPackage.class);
+        displayer = new DisplayOperator("cn.kizzzy.sghero.display", tabView);
         displayer.load();
-        displayer.setContext(vfs);
     }
     
     @Override
