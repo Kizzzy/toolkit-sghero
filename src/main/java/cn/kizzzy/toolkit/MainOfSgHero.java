@@ -11,8 +11,4 @@ public class MainOfSgHero extends Application {
     public void start(Stage primaryStage) throws Exception {
         Controllers.start(null, primaryStage, SgHeroLocalController.class);
     }
-    
-    public static void main(String[] args) {
-        launch(args);
-    }
 }
