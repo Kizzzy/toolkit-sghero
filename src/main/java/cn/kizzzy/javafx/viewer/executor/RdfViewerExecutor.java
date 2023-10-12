@@ -1,7 +1,6 @@
 package cn.kizzzy.javafx.viewer.executor;
 
 import cn.kizzzy.helper.FileHelper;
-import cn.kizzzy.helper.LogHelper;
 import cn.kizzzy.helper.StringHelper;
 import cn.kizzzy.javafx.common.MenuItemArg;
 import cn.kizzzy.javafx.display.DisplayOperator;
@@ -213,7 +212,7 @@ public class RdfViewerExecutor extends AbstractViewerExecutor {
                     target.save(leaf.path, data);
                 }
             } catch (Exception e) {
-                LogHelper.info(String.format("export file failed: %s", leaf.name), e);
+                logger.info(String.format("export file failed: %s", leaf.name), e);
             }
         }
     }
